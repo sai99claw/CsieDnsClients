@@ -1,6 +1,7 @@
 # Never commit a real config — it contains the user's token.
 *.conf
 .csie-ddns.state
+.csie-ddns.fail
 
 # Materialised launchd plist (paths are user-specific).
 io.csie.ddns-updater.plist

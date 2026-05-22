@@ -14,7 +14,8 @@ job using only `bash`, `curl`, and `launchd` — all pre-installed on macOS.
 4. Caches the last successful IP locally so unchanged IPs aren't re-sent
    every cycle (but forces a re-send hourly as a safety net).
 5. Logs every run to `~/Library/Logs/csie-ddns.log`.
-6. Recognises the current server response codes: `OK`, `KO2`, `KO4`, `KO6`.
+6. Recognises the current server response codes (`OK`, `KO2`, `KO4`, `KO5`, `KO6`, `KO7`) with distinct log messages.
+7. After 3 consecutive server-side failures, falls back to a 6-hour retry interval (configurable) until the next success. Avoids hammering the API when there is a server-side problem.
 
 ## Install
 
@@ -49,6 +50,8 @@ All settings are environment variables read from `~/.csie-ddns.conf`:
 - `CSIE_LOG_FILE` — log path (default: `~/Library/Logs/csie-ddns.log`)
 - `CSIE_STATE_FILE` — last-known-IP cache (default: `~/.csie-ddns.state`)
 - `CSIE_FORCE_UPDATE_SECONDS` — force a re-send even if IP unchanged (default 3600)
+- `CSIE_BACKOFF_AFTER_FAILS` — consecutive failures before backoff (default 3)
+- `CSIE_BACKOFF_SECONDS` — spacing between attempts while in backoff (default 21600 = 6h)
 
 Change the update interval by editing `StartInterval` in the installed plist
 at `~/Library/LaunchAgents/io.csie.ddns-updater.plist`, then re-run

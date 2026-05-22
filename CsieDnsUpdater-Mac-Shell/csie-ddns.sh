@@ -34,12 +34,44 @@ fi
 
 LOG_FILE="${CSIE_LOG_FILE:-$HOME/Library/Logs/csie-ddns.log}"
 STATE_FILE="${CSIE_STATE_FILE:-$HOME/.csie-ddns.state}"
+FAIL_STATE_FILE="${CSIE_FAIL_STATE_FILE:-$HOME/.csie-ddns.fail}"
 FORCE_UPDATE_SECONDS="${CSIE_FORCE_UPDATE_SECONDS:-3600}"
+BACKOFF_AFTER_FAILS="${CSIE_BACKOFF_AFTER_FAILS:-3}"
+BACKOFF_SECONDS="${CSIE_BACKOFF_SECONDS:-21600}"   # 6 hours
 
 mkdir -p "$(dirname "$LOG_FILE")"
 
 log() {
     printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG_FILE"
+}
+
+# Backoff state: ~/.csie-ddns.fail contains "<consecutive_fail_count> <next_attempt_epoch>"
+fail_count=0
+next_attempt=0
+if [[ -f "$FAIL_STATE_FILE" ]]; then
+    fs_fc=0; fs_na=0
+    IFS=' ' read -r fs_fc fs_na < "$FAIL_STATE_FILE" || true
+    fail_count=${fs_fc:-0}
+    next_attempt=${fs_na:-0}
+    now_ts=$(date +%s)
+    if (( now_ts < next_attempt )); then
+        log "skipped (backoff: $fail_count consecutive failures, $((next_attempt - now_ts))s until next attempt)"
+        exit 0
+    fi
+fi
+
+record_failure() {
+    fail_count=$((fail_count + 1))
+    local na=0
+    if (( fail_count >= BACKOFF_AFTER_FAILS )); then
+        na=$(( $(date +%s) + BACKOFF_SECONDS ))
+        log "entering backoff: $fail_count consecutive failures; next attempt at $(date -r "$na" '+%Y-%m-%d %H:%M:%S')"
+    fi
+    printf '%s %s\n' "$fail_count" "$na" > "$FAIL_STATE_FILE"
+}
+
+record_success() {
+    rm -f "$FAIL_STATE_FILE"
 }
 
 fetch_ip() {
@@ -92,25 +124,36 @@ case "$response" in
     OK)
         printf '%s' "$current_ip" > "$STATE_FILE"
         log "OK: ${CSIE_HOSTNAME}.csie.io -> $current_ip"
+        record_success
         ;;
     KO|KO2)
         log "FAILED ($response): hostname or token is empty"
+        record_failure
         exit 2
         ;;
     KO4)
         log "FAILED ($response): token format invalid"
+        record_failure
         exit 2
         ;;
-    KO6)
+    KO5|KO6)
         log "FAILED ($response): token does not authorize this hostname"
+        record_failure
+        exit 2
+        ;;
+    KO7)
+        log "FAILED ($response): server refused the IP change"
+        record_failure
         exit 2
         ;;
     KO*)
         log "FAILED ($response): server rejected the request"
+        record_failure
         exit 2
         ;;
     *)
         log "FAILED: unexpected response from csie.io: '$response'"
+        record_failure
         exit 3
         ;;
 esac
